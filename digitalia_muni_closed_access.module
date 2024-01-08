@@ -1,0 +1,78 @@
+<?php
+
+/**
+ * @file
+ * Primary module hooks for digitalia_muni_closed_access module.
+ *
+ * @DCG
+ * This file is no longer required in Drupal 8.
+ * @see https://www.drupal.org/node/2217931
+ */
+function digitalia_muni_closed_access_file_download($uri) {
+  if (\Drupal::currentUser()->hasPermission('access closed documents')) {
+    return NULL;
+  }
+
+  $files = \Drupal::entityTypeManager()->getStorage('file')->loadByProperties(['uri' => $uri]);
+  $file = reset($files);
+
+  $media_entities = \Drupal::entityTypeManager()->getStorage('media')->loadByProperties([
+    'field_media_document' => $file->id(),
+  ]);
+
+  if (!is_array($media_entities) or empty($media_entities)) {
+    return NULL;
+  }
+
+  $media = reset($media_entities);
+  $nid = $media->field_media_of->target_id;
+
+  if (!$nid) {
+    return -1;
+  }
+
+  $node = \Drupal\node\Entity\Node::load($nid);
+  if (!$node->isPublished()) {
+    return -1;
+  }
+
+  $access = $node->get('field_rights_access')->getValue();
+  if (empty($access)) {
+    return NULL;
+  }
+
+  $tid = $access[0]['target_id'];
+  $term = \Drupal\taxonomy\Entity\Term::load($tid);
+  $term_id = $term->get('field_id')->getValue()[0]['value'];
+  if ($term_id == 'closedaccess') {
+    return -1;
+  }
+
+  if ($term_id = 'embargoedaccess') {
+    $end_date = $node->get('field_embargo_end_date')->getValue()[0]['value'];
+    if ($end_date > date("Y-m-d")) {
+      return -1;
+    }
+  }
+}
+
+function digitalia_muni_closed_access_views_pre_view($view, $display_id, array &$args) {
+
+  $access = \Drupal::currentUser()->hasPermission('access closed documents');
+
+  if ($view->id() == 'dk_ff_eva_issue_table_of_contents') {
+
+    if ($access) {
+      $view->removeHandler('entity_view_1', 'field', 'field_media_document_1');
+    } else {
+      $view->removeHandler('entity_view_1', 'field', 'field_media_document_2');
+    }
+  } elseif ($view->id() == 'dk_ff_eva_book_table_of_contents') {
+
+    if ($access) {
+      $view->removeHandler('entity_view_1', 'field', 'nothing');
+    } else {
+      $view->removeHandler('entity_view_1', 'field', 'nothing_2');
+    }
+  }
+}
